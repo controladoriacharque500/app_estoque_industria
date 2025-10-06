@@ -21,7 +21,7 @@ COLUNAS_NUMERICAS_LIMPEZA = ['KG', 'CX']
 
 # --- Configurações de Página ---
 st.set_page_config(
-    page_title="Consulta de Rastreio de Estoque",
+    page_title="Consulta Estoque Indústria",
     page_icon="🔎",
     layout="wide"
 )
@@ -197,3 +197,4 @@ if not df_estoque.empty:
         )
     else:
         st.warning("Nenhum resultado encontrado para os filtros aplicados.")
+
