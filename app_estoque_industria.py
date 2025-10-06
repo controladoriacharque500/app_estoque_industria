@@ -73,7 +73,7 @@ def load_data():
     # --- ACESSO À PLANILHA E LIMPEZA DE DADOS ---
     try:
         planilha = gc.open(PLANILHA_NOME)
-        aba = planilha.sheet1
+        aba = planilha.worksheet('ESTOQUETotal')#sheet1
 
         data = aba.get_all_records()
         df = pd.DataFrame(data)
@@ -197,6 +197,7 @@ if not df_estoque.empty:
         )
     else:
         st.warning("Nenhum resultado encontrado para os filtros aplicados.")
+
 
 
 
