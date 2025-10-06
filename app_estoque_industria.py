@@ -3,9 +3,10 @@ import pandas as pd
 from gspread import service_account, service_account_from_dict
 
 # --- Configurações Iniciais ---
-PLANILHA_NOME = "Estoque_industria_Analitico"
+PLANILHA_NOME = "Estoque_industria_Analitico" # Nome da sua planilha
+ABA_NOME = "ESTOQUETotal" # Nome EXATO da aba na sua planilha
 
-# NOVAS COLUNAS QUE SERÃO EXIBIDAS NA TABELA FINAL (ORDEM DA SUA PLANILHA)
+# Colunas que serão exibidas na tabela final
 COLUNAS_EXIBICAO = [
     'TIPO',
     'RASTREIO',
@@ -21,7 +22,7 @@ COLUNAS_NUMERICAS_LIMPEZA = ['KG', 'CX']
 
 # --- Configurações de Página ---
 st.set_page_config(
-    page_title="Consulta Estoque Indústria",
+    page_title="Consulta de Rastreio de Estoque",
     page_icon="🔎",
     layout="wide"
 )
@@ -32,14 +33,10 @@ def formatar_br_numero_inteiro(x):
     """Formata número inteiro usando ponto como separador de milhar."""
     if pd.isna(x):
         return ''
-
-    # Se não for inteiro, arredonda e converte para int
+    
     val = int(round(x)) if pd.notna(x) else 0
-
-    # Formata com separador de milhar (vírgula)
-    s = f"{val:,}"
-
-    # Inverte os separadores: vírgula milhar -> ponto (Padrão BR)
+    s = f"{val:,}" 
+    
     return s.replace(',', '#TEMP#').replace('.', ',').replace('#TEMP#', '.').strip()
 
 
@@ -47,7 +44,7 @@ def formatar_br_numero_inteiro(x):
 @st.cache_data(ttl=600)
 def load_data():
     """Conecta e carrega os dados da planilha."""
-
+    
     # --- AUTENTICAÇÃO UNIFICADA (NUVEM OU LOCAL) ---
     try:
         if "gcp_service_account" not in st.secrets:
@@ -65,40 +62,47 @@ def load_data():
         secrets_dict["private_key"] = f"-----BEGIN PRIVATE KEY-----\n{private_key_limpa}\n-----END PRIVATE KEY-----\n"
 
         gc = service_account_from_dict(secrets_dict)
-
+        
     except Exception as e:
-        st.error(f"Erro de autenticação/acesso: Verifique se a chave no secrets.toml (ou no Streamlit Cloud) está correta. Detalhe: {e}")
+        st.error(f"Erro de autenticação/acesso: Verifique a chave e o nome do arquivo secrets.toml. Detalhe: {e}")
         return pd.DataFrame()
-
-    # --- ACESSO À PLANILHA E LIMPEZA DE DADOS ---
+        
+    # --- ACESSO À PLANILHA E LEITURA ROBUSTA ---
     try:
         planilha = gc.open(PLANILHA_NOME)
-        aba = planilha.worksheet('ESTOQUETotal')#sheet1
+        aba = planilha.worksheet(ABA_NOME) 
 
-        data = aba.get_all_records()
-        df = pd.DataFrame(data)
+        # LÊ TODOS OS VALORES (contorna o problema do get_all_records)
+        all_data = aba.get_all_values()
+        
+        # CRIA O DATAFRAME FORÇANDO A PRIMEIRA LINHA COMO CABEÇALHO
+        headers = all_data[0]
+        data_rows = all_data[1:]
+        
+        df = pd.DataFrame(data_rows, columns=headers)
+
+        # LIMPEZA EXTRA: Remove colunas completamente vazias (causadas por get_all_values)
+        df.dropna(axis=1, how='all', inplace=True)
+        # LIMPEZA EXTRA: Remove linhas completamente vazias
+        df.dropna(how='all', inplace=True)
 
         # --- Limpeza de Tipos Numéricos (KG, CX) ---
         for col in COLUNAS_NUMERICAS_LIMPEZA:
             if col in df.columns:
                 df[col] = df[col].astype(str).str.strip()
-                # 1. Remove separador de milhar (ponto)
-                df[col] = df[col].str.replace('.', '', regex=False)
-                # 2. Troca decimal (vírgula) por ponto
+                df[col] = df[col].str.replace('.', '', regex=False) 
                 df[col] = df[col].str.replace(',', '.', regex=False)
                 df[col] = pd.to_numeric(df[col], errors='coerce')
 
-        df.dropna(how='all', inplace=True)
-
         return df
     except Exception as e:
-        st.error(f"Erro ao carregar dados da planilha: Verifique o nome da planilha ou permissões. Detalhe: {e}")
+        st.error(f"Erro ao carregar dados da planilha: Verifique o nome da planilha, a aba ('{ABA_NOME}') ou se a conta de serviço tem permissão. Detalhe: {e}")
         return pd.DataFrame()
 
 # --- Carregar e Exibir os Dados ---
 df_estoque = load_data()
 
-st.title("🔎 Consulta de Rastreio e Matéria-Prima")
+st.title("🔎 Consulta Estoque Indústria")
 st.markdown("---")
 
 if not df_estoque.empty:
@@ -110,10 +114,10 @@ if not df_estoque.empty:
 
     opcoes_tipo = ['Todos'] + sorted(df_estoque['TIPO'].unique().tolist())
     opcoes_produto = ['Todos'] + sorted(df_estoque['PRODUTO'].unique().tolist())
-
+    
     # --- INTERFACE DE FILTRO ---
     st.subheader("Filtros de Consulta")
-
+    
     col1, col2, col3 = st.columns(3)
 
     with col1:
@@ -129,7 +133,6 @@ if not df_estoque.empty:
     # --- LÓGICA DE FILTRAGEM ---
     df_filtrado = df_estoque.copy()
 
-    # 1. Filtro por Rastreio (text input)
     rastreio_input = rastreio_input.lower().strip()
     if rastreio_input:
         df_filtrado = df_filtrado[
@@ -139,64 +142,57 @@ if not df_estoque.empty:
             .str.contains(rastreio_input, na=False)
         ]
 
-    # 2. Filtro por Tipo (selectbox)
     if tipo_filtro != 'Todos':
         df_filtrado = df_filtrado[df_filtrado['TIPO'] == tipo_filtro]
-
-    # 3. Filtro por Produto (selectbox)
+    
     if produto_filtro != 'Todos':
         df_filtrado = df_filtrado[df_filtrado['PRODUTO'] == produto_filtro]
 
 
-    # --- CÁLCULO E EXIBIÇÃO DOS TOTAIS (NOVA SEÇÃO) ---
-
-    # 1. Calcula os totais (somente no DataFrame FILTRADO)
+    # --- CÁLCULO E EXIBIÇÃO DOS TOTAIS ---
+    
     total_kg = df_filtrado['KG'].sum()
     total_cx = df_filtrado['CX'].sum()
-
-    # 2. Formata os totais para exibição
+    
     total_kg_formatado = formatar_br_numero_inteiro(total_kg)
     total_cx_formatado = formatar_br_numero_inteiro(total_cx)
 
     st.markdown("---")
     st.subheader(f"Resultados Encontrados ({len(df_filtrado)} itens)")
 
-    # Exibe os totais usando st.metric
     col_t1, col_t2, col_t3 = st.columns(3)
-
+    
     with col_t1:
         st.metric(label="📦 Total de Caixas (CX)", value=total_cx_formatado)
-
+        
     with col_t2:
         st.metric(label="⚖️ Total de Quilogramas (KG)", value=total_kg_formatado)
-
+        
     with col_t3:
-        # Espaço vazio ou métrica adicional se necessário
-        st.write("")
+        st.write("") 
 
 
     # --- APLICAÇÃO DA FORMATAÇÃO E SELEÇÃO DE COLUNAS ---
-
-    # 1. Seleciona e copia APENAS as colunas desejadas
+    
     try:
         df_display = df_filtrado[COLUNAS_EXIBICAO].copy()
     except KeyError as e:
-        st.error(f"Erro: A coluna {e} não foi encontrada na sua planilha. Verifique se os nomes são exatos: {COLUNAS_EXIBICAO}")
-        st.stop()
+        st.error(f"Erro: A coluna {e} não foi encontrada. Verifique se os nomes são exatos: {COLUNAS_EXIBICAO}")
+        st.stop() 
 
-    # 2. Aplica a formatação de números inteiros nas colunas numéricas
     for col in COLUNAS_NUMERICAS_LIMPEZA:
         if col in df_display.columns:
             df_display[col] = df_display[col].apply(formatar_br_numero_inteiro)
-
+            
     # --- EXIBIÇÃO ---
     if not df_filtrado.empty:
         st.dataframe(
-            df_display,
+            df_display, 
             use_container_width=True
         )
     else:
         st.warning("Nenhum resultado encontrado para os filtros aplicados.")
+
 
 
 
