@@ -2,13 +2,13 @@ import streamlit as st
 import pandas as pd
 from gspread import service_account, service_account_from_dict
 from datetime import datetime
-import json # Necessário para o tratamento robusto do st.secrets
+import json
 
 # --- Configurações Iniciais ---
 PLANILHA_NOME = "Estoque_industria_Analitico"
 COLUNAS_NUMERICAS_LIMPEZA = ['KG', 'CX']
-COLUNAS_DATA_FORMATACAO = ['FABRICACAO', 'VALIDADE'] # Corrigido o espaço em 'VALIDADE'
-ABA_NOME = "ESTOQUETotal" # Nome da sua aba
+COLUNAS_DATA_FORMATACAO = ['FABRICACAO', 'VALIDADE']
+ABA_NOME = "ESTOQUETotal" 
 
 # Colunas que serão exibidas na tabela final
 COLUNAS_EXIBICAO = [
@@ -41,10 +41,8 @@ def formatar_br_data(d):
         return ''
 
     try:
-        # Usa strftime, o método padrão para formatar objetos datetime
         return d.strftime("%d/%m/%Y")
     except AttributeError:
-        # Retorna o valor original (string, número) se a conversão falhou
         return str(d)
 
 def formatar_br_numero_inteiro(x):
@@ -63,16 +61,14 @@ def formatar_br_numero_inteiro(x):
 def load_data():
     """Conecta e carrega os dados da planilha."""
 
-    # --- AUTENTICAÇÃO ROBUSTA (AGORA FUNCIONA NA NUVEM VIA st.secrets) ---
+    # --- AUTENTICAÇÃO ROBUSTA (st.secrets) ---
     try:
         if "gcp_service_account" not in st.secrets:
-             # Este erro só é mostrado se não houver a seção no secrets.toml
              raise ValueError("Nenhuma seção [gcp_service_account] encontrada no st.secrets.")
 
         secrets_dict = dict(st.secrets["gcp_service_account"])
         private_key_corrompida = secrets_dict["private_key"]
 
-        # Lógica de limpeza e padding da chave (mantida da solução anterior)
         private_key_limpa = private_key_corrompida.replace('\n', '').replace(' ', '')
         private_key_limpa = private_key_limpa.replace('-----BEGINPRIVATEKEY-----', '').replace('-----ENDPRIVATEKEY-----', '')
         padding_necessario = len(private_key_limpa) % 4
@@ -91,8 +87,7 @@ def load_data():
         planilha = gc.open(PLANILHA_NOME)
         aba = planilha.worksheet(ABA_NOME) 
         
-        # Leitura com intervalo forçado (A1 até a última coluna de exibição + STATUS VALIDADE)
-        RANGE_PLANILHA = "A1:J" # Presumindo que J é a última coluna ('STATUS VALIDADE')
+        RANGE_PLANILHA = "A1:J" 
         all_data = aba.get_values(RANGE_PLANILHA)
         
         headers = all_data[0]
@@ -100,13 +95,14 @@ def load_data():
         
         df = pd.DataFrame(data_rows, columns=headers)
 
-        # 1. LIMPEZA INICIAL DE COLUNAS/LINHAS VAZIAS
+        # 1. CORREÇÃO DE CABEÇALHOS E LIMPEZA INICIAL
+        df.columns = df.columns.str.strip() # <--- CORREÇÃO CRÍTICA PARA O KEYERROR
         df.dropna(axis=1, how='all', inplace=True)
         df.dropna(how='all', inplace=True)
         
         # 2. CONVERSÃO DE TIPOS DE DADOS
         
-        # Converte Datas (CRUCIAL PARA A FORMATAÇÃO BR)
+        # Converte Datas
         for col in COLUNAS_DATA_FORMATACAO:
             if col in df.columns:
                 df[col] = pd.to_datetime(df[col], errors='coerce', dayfirst=True)
@@ -119,7 +115,6 @@ def load_data():
                 df[col] = df[col].str.replace(',', '.', regex=False)
                 df[col] = pd.to_numeric(df[col], errors='coerce')
                 
-        # ESTE É O RETURN CORRETO (APÓS TODAS AS CONVERSÕES E LIMPEZAS)
         return df
 
     except Exception as e:
@@ -233,6 +228,7 @@ if not df_estoque.empty:
         )
     else:
         st.warning("Nenhum resultado encontrado para os filtros aplicados.")
+
 
 
 
