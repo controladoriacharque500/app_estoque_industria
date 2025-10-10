@@ -75,7 +75,7 @@ def formatar_br_numero_inteiro(x):
 def load_data():
     """Conecta e carrega os dados da planilha."""
 
-    # --- AUTENTICAÇÃO ROBUSTA (st.secrets) ---
+    # --- AUTENTICAÇÃO UNIFICADA (NUVEM OU LOCAL) ---
     try:
         if "gcp_service_account" not in st.secrets:
              raise ValueError("Nenhuma seção [gcp_service_account] encontrada no st.secrets.")
@@ -83,7 +83,7 @@ def load_data():
         secrets_dict = dict(st.secrets["gcp_service_account"])
         private_key_corrompida = secrets_dict["private_key"]
 
-        # Lógica de limpeza e padding da chave (mantida da solução anterior)
+        # Lógica de limpeza e padding da chave
         private_key_limpa = private_key_corrompida.replace('\n', '').replace(' ', '')
         private_key_limpa = private_key_limpa.replace('-----BEGINPRIVATEKEY-----', '').replace('-----ENDPRIVATEKEY-----', '')
         padding_necessario = len(private_key_limpa) % 4
@@ -92,7 +92,7 @@ def load_data():
         secrets_dict["private_key"] = f"-----BEGIN PRIVATE KEY-----\n{private_key_limpa}\n-----END PRIVATE KEY-----\n"
 
         gc = service_account_from_dict(secrets_dict)
-        
+
     except Exception as e:
         st.error(f"Erro de autenticação/acesso: Verifique se a chave no secrets.toml (ou no Streamlit Cloud) está correta. Detalhe: {e}")
         return pd.DataFrame()
@@ -247,6 +247,7 @@ if not df_estoque.empty:
         )
     else:
         st.warning("Nenhum resultado encontrado para os filtros aplicados.")
+
 
 
 
