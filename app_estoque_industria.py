@@ -1,13 +1,11 @@
 import streamlit as st
 import pandas as pd
 from gspread import service_account, service_account_from_dict
-from datetime import datetime
-import json # Necessário para o tratamento robusto do st.secrets
 
 # --- Configurações Iniciais ---
-PLANILHA_NOME = "Estoque_industria_Analitico" # Verifique se este nome está EXATO
+PLANILHA_NOME = "Estoque_industria_Analitico"
 
-# Colunas que serão exibidas na tabela final
+# NOVAS COLUNAS QUE SERÃO EXIBIDAS NA TABELA FINAL (ORDEM DA SUA PLANILHA)
 COLUNAS_EXIBICAO = [
     'TIPO',
     'RASTREIO',
@@ -15,20 +13,11 @@ COLUNAS_EXIBICAO = [
     'MATÉRIA-PRIMA',
     'PRODUTO',
     'KG',
-    'CX', 
-    'FABRICACAO', 
-    'VALIDADE',
-    'STATUS VALIDADE'
+    'CX'
 ]
 
-# Colunas que precisam de limpeza e conversão numérica
+# Colunas que precisam de limpeza e conversão numérica (KG e CX)
 COLUNAS_NUMERICAS_LIMPEZA = ['KG', 'CX']
-
-# Colunas que precisam ser formatadas as datas (CORRIGIDO O ESPAÇO)
-COLUNAS_DATA_FORMATACAO = ['FABRICACAO', 'VALIDADE']
-
-# Nome da aba que será lida (Ajuste se necessário)
-ABA_NOME = "ESTOQUETotal"
 
 # --- Configurações de Página ---
 st.set_page_config(
@@ -37,26 +26,6 @@ st.set_page_config(
     layout="wide"
 )
 
-# --- Formatar data (Padrão Brasileiro) ---
-
-def formatar_br_data(d):
-    """
-    Formata um objeto datetime/Timestamp para o formato brasileiro dd/mm/aaaa.
-    Lida com valores nulos (NaT) e vazios (pd.isna).
-    """
-    if pd.isna(d):
-        return ''
-
-    if pd.isnull(d):
-        return ''
-
-    try:
-        # Usa strftime, o método padrão para formatar objetos datetime
-        return d.strftime("%d/%m/%Y")
-    except AttributeError:
-        # Retorna o valor original (string, número) se a conversão falhou
-        return str(d)
-
 # --- Funções de Formatação (Padrão Brasileiro) ---
 
 def formatar_br_numero_inteiro(x):
@@ -64,9 +33,13 @@ def formatar_br_numero_inteiro(x):
     if pd.isna(x):
         return ''
 
+    # Se não for inteiro, arredonda e converte para int
     val = int(round(x)) if pd.notna(x) else 0
+
+    # Formata com separador de milhar (vírgula)
     s = f"{val:,}"
 
+    # Inverte os separadores: vírgula milhar -> ponto (Padrão BR)
     return s.replace(',', '#TEMP#').replace('.', ',').replace('#TEMP#', '.').strip()
 
 
@@ -96,72 +69,52 @@ def load_data():
     except Exception as e:
         st.error(f"Erro de autenticação/acesso: Verifique se a chave no secrets.toml (ou no Streamlit Cloud) está correta. Detalhe: {e}")
         return pd.DataFrame()
-        
-    # --- ACESSO À PLANILHA E LEITURA ROBUSTA ---
+
+    # --- ACESSO À PLANILHA E LIMPEZA DE DADOS ---
     try:
         planilha = gc.open(PLANILHA_NOME)
-        aba = planilha.worksheet(ABA_NOME) 
-        
-        # Leitura robusta usando get_all_values() com intervalo forçado
-        # Seus dados vão até a coluna 'STATUS VALIDADE' (coluna J na planilha)
-        RANGE_PLANILHA = "A1:J" 
-        all_data = aba.get_values(RANGE_PLANILHA)
-        
-        headers = all_data[0]
-        data_rows = all_data[1:]
-        
-        df = pd.DataFrame(data_rows, columns=headers)
+        aba = planilha.sheet1
 
-        # 1. LIMPEZA INICIAL DE COLUNAS/LINHAS VAZIAS
-        df.dropna(axis=1, how='all', inplace=True)
-        df.dropna(how='all', inplace=True)
-        
-        # 2. CONVERSÃO DE TIPOS DE DADOS (CRUCIAL PARA A FORMATAÇÃO)
-        
-        # Converte Datas
-        for col in COLUNAS_DATA_FORMATACAO:
-            if col in df.columns:
-                # dayfirst=True é essencial para garantir que 01/05/2025 seja lido como 1 de Maio
-                df[col] = pd.to_datetime(df[col], errors='coerce', dayfirst=True)
-        
-        # Converte Números
+        data = aba.get_all_records()
+        df = pd.DataFrame(data)
+
+        # --- Limpeza de Tipos Numéricos (KG, CX) ---
         for col in COLUNAS_NUMERICAS_LIMPEZA:
             if col in df.columns:
                 df[col] = df[col].astype(str).str.strip()
-                df[col] = df[col].str.replace('.', '', regex=False) 
+                # 1. Remove separador de milhar (ponto)
+                df[col] = df[col].str.replace('.', '', regex=False)
+                # 2. Troca decimal (vírgula) por ponto
                 df[col] = df[col].str.replace(',', '.', regex=False)
                 df[col] = pd.to_numeric(df[col], errors='coerce')
-                
-        # Retorna o DataFrame limpo e convertido
+
+        df.dropna(how='all', inplace=True)
+
         return df
-
     except Exception as e:
-        # Se o erro for aqui, ele pode ser um problema de nome de aba/permissão/estrutura
-        st.error(f"Erro ao carregar dados da planilha: Verifique o nome da planilha ('{PLANILHA_NOME}'), a aba ('{ABA_NOME}') ou a estrutura de dados (células mescladas/vazias na linha 1). Detalhe: {e}")
+        st.error(f"Erro ao carregar dados da planilha: Verifique o nome da planilha ou permissões. Detalhe: {e}")
         return pd.DataFrame()
-
 
 # --- Carregar e Exibir os Dados ---
 df_estoque = load_data()
 
-st.title("🔎 Consulta Estoque Indústria")
+st.title("🔎 Consulta de Rastreio e Matéria-Prima")
 st.markdown("---")
 
 if not df_estoque.empty:
 
     # --- PREPARO DOS DADOS DE FILTRO ---
-    for col_filtro in ['TIPO', 'PRODUTO', 'RASTREIO', 'STATUS VALIDADE']:
+    for col_filtro in ['TIPO', 'PRODUTO', 'RASTREIO']:
         if col_filtro in df_estoque.columns:
             df_estoque[col_filtro] = df_estoque[col_filtro].astype(str).fillna('Não Informado')
 
     opcoes_tipo = ['Todos'] + sorted(df_estoque['TIPO'].unique().tolist())
     opcoes_produto = ['Todos'] + sorted(df_estoque['PRODUTO'].unique().tolist())
-    opcoes_status = ['Todos'] + sorted(df_estoque['STATUS VALIDADE'].unique().tolist())
 
     # --- INTERFACE DE FILTRO ---
     st.subheader("Filtros de Consulta")
 
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3 = st.columns(3)
 
     with col1:
         rastreio_input = st.text_input("🔍 Filtrar por Rastreio:", help="Filtro parcial (contém)")
@@ -172,13 +125,11 @@ if not df_estoque.empty:
     with col3:
         produto_filtro = st.selectbox("🏭 Filtrar por Produto:", opcoes_produto)
 
-    with col4:
-        status_filtro = st.selectbox("📅 Filtrar por Status:", opcoes_status)
-
 
     # --- LÓGICA DE FILTRAGEM ---
     df_filtrado = df_estoque.copy()
 
+    # 1. Filtro por Rastreio (text input)
     rastreio_input = rastreio_input.lower().strip()
     if rastreio_input:
         df_filtrado = df_filtrado[
@@ -188,27 +139,29 @@ if not df_estoque.empty:
             .str.contains(rastreio_input, na=False)
         ]
 
+    # 2. Filtro por Tipo (selectbox)
     if tipo_filtro != 'Todos':
         df_filtrado = df_filtrado[df_filtrado['TIPO'] == tipo_filtro]
 
+    # 3. Filtro por Produto (selectbox)
     if produto_filtro != 'Todos':
         df_filtrado = df_filtrado[df_filtrado['PRODUTO'] == produto_filtro]
 
-    if status_filtro != 'Todos':
-        df_filtrado = df_filtrado[df_filtrado['STATUS VALIDADE'] == status_filtro]
 
+    # --- CÁLCULO E EXIBIÇÃO DOS TOTAIS (NOVA SEÇÃO) ---
 
-    # --- CÁLCULO E EXIBIÇÃO DOS TOTAIS ---
-
+    # 1. Calcula os totais (somente no DataFrame FILTRADO)
     total_kg = df_filtrado['KG'].sum()
     total_cx = df_filtrado['CX'].sum()
 
+    # 2. Formata os totais para exibição
     total_kg_formatado = formatar_br_numero_inteiro(total_kg)
     total_cx_formatado = formatar_br_numero_inteiro(total_cx)
 
     st.markdown("---")
     st.subheader(f"Resultados Encontrados ({len(df_filtrado)} itens)")
 
+    # Exibe os totais usando st.metric
     col_t1, col_t2, col_t3 = st.columns(3)
 
     with col_t1:
@@ -218,27 +171,24 @@ if not df_estoque.empty:
         st.metric(label="⚖️ Total de Quilogramas (KG)", value=total_kg_formatado)
 
     with col_t3:
+        # Espaço vazio ou métrica adicional se necessário
         st.write("")
 
 
     # --- APLICAÇÃO DA FORMATAÇÃO E SELEÇÃO DE COLUNAS ---
 
+    # 1. Seleciona e copia APENAS as colunas desejadas
     try:
         df_display = df_filtrado[COLUNAS_EXIBICAO].copy()
     except KeyError as e:
-        st.error(f"Erro: A coluna {e} não foi encontrada. Verifique se os nomes são exatos: {COLUNAS_EXIBICAO}")
+        st.error(f"Erro: A coluna {e} não foi encontrada na sua planilha. Verifique se os nomes são exatos: {COLUNAS_EXIBICAO}")
         st.stop()
 
-    # Aplica a formatação de números inteiros
+    # 2. Aplica a formatação de números inteiros nas colunas numéricas
     for col in COLUNAS_NUMERICAS_LIMPEZA:
         if col in df_display.columns:
             df_display[col] = df_display[col].apply(formatar_br_numero_inteiro)
 
-    # Aplicando a formatação nas datas
-    for col in COLUNAS_DATA_FORMATACAO:
-        if col in df_display.columns:
-            df_display[col] = df_display[col].apply(formatar_br_data)
-            
     # --- EXIBIÇÃO ---
     if not df_filtrado.empty:
         st.dataframe(
@@ -247,12 +197,3 @@ if not df_estoque.empty:
         )
     else:
         st.warning("Nenhum resultado encontrado para os filtros aplicados.")
-
-
-
-
-
-
-
-
-
