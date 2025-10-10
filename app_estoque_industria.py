@@ -2,13 +2,10 @@ import streamlit as st
 import pandas as pd
 from gspread import service_account, service_account_from_dict
 from datetime import datetime
-import json
+import json # Necessário para o tratamento robusto do st.secrets
 
 # --- Configurações Iniciais ---
-PLANILHA_NOME = "Estoque_industria_Analitico"
-COLUNAS_NUMERICAS_LIMPEZA = ['KG', 'CX']
-COLUNAS_DATA_FORMATACAO = ['FABRICACAO', 'VALIDADE']
-ABA_NOME = "ESTOQUETotal" 
+PLANILHA_NOME = "Estoque_industria_Analitico" # Verifique se este nome está EXATO
 
 # Colunas que serão exibidas na tabela final
 COLUNAS_EXIBICAO = [
@@ -18,11 +15,20 @@ COLUNAS_EXIBICAO = [
     'MATÉRIA-PRIMA',
     'PRODUTO',
     'KG',
-    'CX', 
-    'FABRICACAO', 
+    'CX',
+    'FABRICACAO',
     'VALIDADE',
     'STATUS VALIDADE'
 ]
+
+# Colunas que precisam de limpeza e conversão numérica
+COLUNAS_NUMERICAS_LIMPEZA = ['KG', 'CX']
+
+# Colunas que precisam ser formatadas as datas (CORRIGIDO O ESPAÇO)
+COLUNAS_DATA_FORMATACAO = ['FABRICACAO', 'VALIDADE']
+
+# Nome da aba que será lida (Ajuste se necessário)
+ABA_NOME = "ESTOQUETotal"
 
 # --- Configurações de Página ---
 st.set_page_config(
@@ -31,19 +37,27 @@ st.set_page_config(
     layout="wide"
 )
 
-# --- Funções de Formatação (Padrão Brasileiro) ---
+# --- Formatar data (Padrão Brasileiro) ---
 
 def formatar_br_data(d):
     """
     Formata um objeto datetime/Timestamp para o formato brasileiro dd/mm/aaaa.
+    Lida com valores nulos (NaT) e vazios (pd.isna).
     """
-    if pd.isna(d) or pd.isnull(d):
+    if pd.isna(d):
+        return ''
+
+    if pd.isnull(d):
         return ''
 
     try:
+        # Usa strftime, o método padrão para formatar objetos datetime
         return d.strftime("%d/%m/%Y")
     except AttributeError:
+        # Retorna o valor original (string, número) se a conversão falhou
         return str(d)
+
+# --- Funções de Formatação (Padrão Brasileiro) ---
 
 def formatar_br_numero_inteiro(x):
     """Formata número inteiro usando ponto como separador de milhar."""
@@ -85,40 +99,44 @@ def load_data():
     # --- ACESSO À PLANILHA E LEITURA ROBUSTA ---
     try:
         planilha = gc.open(PLANILHA_NOME)
-        aba = planilha.worksheet(ABA_NOME) 
-        
-        RANGE_PLANILHA = "A1:J" 
+        aba = planilha.worksheet(ABA_NOME)
+
+        # Leitura robusta usando get_all_values() com intervalo forçado
+        # Seus dados vão até a coluna 'STATUS VALIDADE' (coluna J na planilha)
+        RANGE_PLANILHA = "A1:K"
         all_data = aba.get_values(RANGE_PLANILHA)
-        
+
         headers = all_data[0]
         data_rows = all_data[1:]
-        
+
         df = pd.DataFrame(data_rows, columns=headers)
 
-        # 1. CORREÇÃO DE CABEÇALHOS E LIMPEZA INICIAL
-        df.columns = df.columns.str.strip() # <--- CORREÇÃO CRÍTICA PARA O KEYERROR
+        # 1. LIMPEZA INICIAL DE COLUNAS/LINHAS VAZIAS
         df.dropna(axis=1, how='all', inplace=True)
         df.dropna(how='all', inplace=True)
-        
-        # 2. CONVERSÃO DE TIPOS DE DADOS
-        
+
+        # 2. CONVERSÃO DE TIPOS DE DADOS (CRUCIAL PARA A FORMATAÇÃO)
+
         # Converte Datas
         for col in COLUNAS_DATA_FORMATACAO:
             if col in df.columns:
+                # dayfirst=True é essencial para garantir que 01/05/2025 seja lido como 1 de Maio
                 df[col] = pd.to_datetime(df[col], errors='coerce', dayfirst=True)
-        
+
         # Converte Números
         for col in COLUNAS_NUMERICAS_LIMPEZA:
             if col in df.columns:
                 df[col] = df[col].astype(str).str.strip()
-                df[col] = df[col].str.replace('.', '', regex=False) 
+                df[col] = df[col].str.replace('.', '', regex=False)
                 df[col] = df[col].str.replace(',', '.', regex=False)
                 df[col] = pd.to_numeric(df[col], errors='coerce')
-                
+
+        # Retorna o DataFrame limpo e convertido
         return df
 
     except Exception as e:
-        st.error(f"Erro ao carregar dados da planilha: Verifique o nome da aba ('{ABA_NOME}') ou a estrutura de dados. Detalhe: {e}")
+        # Se o erro for aqui, ele pode ser um problema de nome de aba/permissão/estrutura
+        st.error(f"Erro ao carregar dados da planilha: Verifique o nome da planilha ('{PLANILHA_NOME}'), a aba ('{ABA_NOME}') ou a estrutura de dados (células mescladas/vazias na linha 1). Detalhe: {e}")
         return pd.DataFrame()
 
 
@@ -154,7 +172,7 @@ if not df_estoque.empty:
         produto_filtro = st.selectbox("🏭 Filtrar por Produto:", opcoes_produto)
 
     with col4:
-        status_filtro = st.selectbox("🏭 Filtrar por Status:", opcoes_status)
+        status_filtro = st.selectbox("📅 Filtrar por Status:", opcoes_status)
 
 
     # --- LÓGICA DE FILTRAGEM ---
@@ -219,7 +237,7 @@ if not df_estoque.empty:
     for col in COLUNAS_DATA_FORMATACAO:
         if col in df_display.columns:
             df_display[col] = df_display[col].apply(formatar_br_data)
-            
+
     # --- EXIBIÇÃO ---
     if not df_filtrado.empty:
         st.dataframe(
@@ -228,7 +246,3 @@ if not df_estoque.empty:
         )
     else:
         st.warning("Nenhum resultado encontrado para os filtros aplicados.")
-
-
-
-
