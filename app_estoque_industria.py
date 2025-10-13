@@ -6,6 +6,9 @@ import json # Necessário para o tratamento robusto do st.secrets
 
 # --- Configurações Iniciais ---
 PLANILHA_NOME = "Estoque_industria_Analitico" # Verifique se este nome está EXATO
+COLUNAS_NUMERICAS_LIMPEZA = ['KG', 'CX']
+COLUNAS_DATA_FORMATACAO = ['FABRICACAO', 'VALIDADE']
+ABA_NOME = "ESTOQUETotal"
 
 # Colunas que serão exibidas na tabela final
 COLUNAS_EXIBICAO = [
@@ -20,15 +23,6 @@ COLUNAS_EXIBICAO = [
     'VALIDADE',
     'STATUS VALIDADE'
 ]
-
-# Colunas que precisam de limpeza e conversão numérica
-COLUNAS_NUMERICAS_LIMPEZA = ['KG', 'CX']
-
-# Colunas que precisam ser formatadas as datas (CORRIGIDO O ESPAÇO)
-COLUNAS_DATA_FORMATACAO = ['FABRICACAO', 'VALIDADE']
-
-# Nome da aba que será lida (Ajuste se necessário)
-ABA_NOME = "ESTOQUETotal"
 
 # --- Configurações de Página ---
 st.set_page_config(
@@ -94,11 +88,12 @@ def load_data():
         
     except Exception as e:
         st.error(f"Erro de autenticação/acesso: Verifique se a chave no secrets.toml está correta. Detalhe: {e}")
-        return pd.DataFrame()
+        return pd.DataFrame(), None
         
     # --- ACESSO À PLANILHA E LEITURA ROBUSTA ---
     try:
         planilha = gc.open(PLANILHA_NOME)
+        data_atualizacao_raw = planilha.get_lastUpdateTime() # nova função captura de data google drive
         aba = planilha.worksheet(ABA_NOME)
 
         # Leitura robusta usando get_all_values() com intervalo forçado
@@ -112,6 +107,7 @@ def load_data():
         df = pd.DataFrame(data_rows, columns=headers)
 
         # 1. LIMPEZA INICIAL DE COLUNAS/LINHAS VAZIAS
+        df.columns = df.columns.str.strip()
         df.dropna(axis=1, how='all', inplace=True)
         df.dropna(how='all', inplace=True)
 
@@ -132,18 +128,30 @@ def load_data():
                 df[col] = pd.to_numeric(df[col], errors='coerce')
 
         # Retorna o DataFrame limpo e convertido
-        return df
+        return df, data_atualizacao_raw
 
     except Exception as e:
         # Se o erro for aqui, ele pode ser um problema de nome de aba/permissão/estrutura
         st.error(f"Erro ao carregar dados da planilha: Verifique o nome da planilha ('{PLANILHA_NOME}'), a aba ('{ABA_NOME}') ou a estrutura de dados (células mescladas/vazias na linha 1). Detalhe: {e}")
-        return pd.DataFrame()
+        return pd.DataFrame(), None
 
 
 # --- Carregar e Exibir os Dados ---
-df_estoque = load_data()
+df_estoque, data_atualizacao_raw = load_data()
+
+# --- FORMATAÇÃO E EXIBIÇÃO DA DATA DE ATUALIZAÇÃO ---
+data_atualizacao_formatada = ""
+if data_atualizacao_raw:
+    try:
+        # Converte a string ISO (gspread) para datetime
+        data_dt = datetime.fromisoformat(data_atualizacao_raw.replace('Z', '+00:00'))
+        data_atualizacao_formatada = formatar_br_data(data_dt)
+    except Exception:
+        data_atualizacao_formatada = "Erro ao formatar data"
 
 st.title("🔎 Consulta Estoque Indústria")
+if data_atualizacao_formatada:
+    st.markdown(f"**Última Atualização:** {data_atualizacao_formatada}")
 st.markdown("---")
 
 if not df_estoque.empty:
@@ -246,3 +254,4 @@ if not df_estoque.empty:
         )
     else:
         st.warning("Nenhum resultado encontrado para os filtros aplicados.")
+
