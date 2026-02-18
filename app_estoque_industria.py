@@ -13,6 +13,7 @@ ABA_NOME = "ESTOQUETotal"
 # Colunas que serão exibidas na tabela final
 COLUNAS_EXIBICAO = [
     'TIPO',
+    'FORNECEDOR',
     'RASTREIO',
     'NOTA FISCAL',
     'MATÉRIA-PRIMA',
@@ -98,7 +99,7 @@ def load_data():
 
         # Leitura robusta usando get_all_values() com intervalo forçado
         # Seus dados vão até a coluna 'STATUS VALIDADE' (coluna J na planilha)
-        RANGE_PLANILHA = "A1:K"
+        RANGE_PLANILHA = "A1:L"
         all_data = aba.get_values(RANGE_PLANILHA)
 
         headers = all_data[0]
@@ -157,29 +158,33 @@ st.markdown("---")
 if not df_estoque.empty:
 
     # --- PREPARO DOS DADOS DE FILTRO ---
-    for col_filtro in ['TIPO', 'PRODUTO', 'RASTREIO', 'STATUS VALIDADE']:
+    for col_filtro in ['TIPO', 'FORNECEDOR', 'PRODUTO', 'RASTREIO', 'STATUS VALIDADE']:
         if col_filtro in df_estoque.columns:
             df_estoque[col_filtro] = df_estoque[col_filtro].astype(str).fillna('Não Informado')
 
     opcoes_tipo = ['Todos'] + sorted(df_estoque['TIPO'].unique().tolist())
+    opcoes_fornecedor = ['Todos'] + sorted(df_estoque['FORNECEDOR'].unique().tolist())
     opcoes_produto = ['Todos'] + sorted(df_estoque['PRODUTO'].unique().tolist())
     opcoes_status = ['Todos'] + sorted(df_estoque['STATUS VALIDADE'].unique().tolist())
 
     # --- INTERFACE DE FILTRO ---
     st.subheader("Filtros de Consulta")
 
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5 = st.columns(5)
 
     with col1:
         rastreio_input = st.text_input("🔍 Filtrar por Rastreio:", help="Filtro parcial (contém)")
 
     with col2:
-        tipo_filtro = st.selectbox("📝 Filtrar por Tipo:", opcoes_tipo)
-
+        Fornecedor_filtro = st.selectbox("🚛 Filtrar por Fornecedor:", opcoes_fornecedor)
+        
     with col3:
+        tipo_filtro = st.selectbox("📝 Filtrar por Tipo:", opcoes_tipo)
+    
+    with col4:
         produto_filtro = st.selectbox("🏭 Filtrar por Produto:", opcoes_produto)
 
-    with col4:
+    with col5:
         status_filtro = st.selectbox("📅 Filtrar por Status:", opcoes_status)
 
 
@@ -197,6 +202,9 @@ if not df_estoque.empty:
 
     if tipo_filtro != 'Todos':
         df_filtrado = df_filtrado[df_filtrado['TIPO'] == tipo_filtro]
+
+    if Fornecedor_filtro != 'Todos':
+        df_filtrado = df_filtrado[df_filtrado['FORNECEDOR'] == Fornecedor_filtro]
 
     if produto_filtro != 'Todos':
         df_filtrado = df_filtrado[df_filtrado['PRODUTO'] == produto_filtro]
@@ -254,4 +262,7 @@ if not df_estoque.empty:
         )
     else:
         st.warning("Nenhum resultado encontrado para os filtros aplicados.")
+
+    
+    if st.sidebar.button("Sair"): st.session_state.usuario_logado = None; st.rerun()
 
