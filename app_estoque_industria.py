@@ -265,4 +265,3 @@ if not df_estoque.empty:
 
     
     if st.sidebar.button("Sair"): st.session_state.usuario_logado = None; st.rerun()
-
